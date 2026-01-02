@@ -3,13 +3,13 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
-const db = require('../db');
+const { User } = require('../db');
 
 router.post('/register', [
   body('email').isEmail(),
   body('password').isLength({ min: 6 }),
   body('name').notEmpty()
-], (req, res) => {
+], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -19,8 +19,12 @@ router.post('/register', [
   const hashedPassword = bcrypt.hashSync(password, 10);
 
   try {
-    const stmt = db.prepare('INSERT INTO users (email, password, name) VALUES (?, ?, ?)');
-    stmt.run(email, hashedPassword, name);
+    const newUser = new User({
+      email,
+      password: hashedPassword,
+      name
+    });
+    await newUser.save();
     res.status(201).json({ message: 'User registered successfully' });
   } catch (err) {
     console.error('Registration error:', err);
@@ -31,7 +35,7 @@ router.post('/register', [
 router.post('/login', [
   body('email').isEmail(),
   body('password').notEmpty()
-], (req, res) => {
+], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -40,8 +44,7 @@ router.post('/login', [
   const { email, password } = req.body;
 
   try {
-    const stmt = db.prepare('SELECT * FROM users WHERE email = ?');
-    const user = stmt.get(email);
+    const user = await User.findOne({ email });
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -57,8 +60,8 @@ router.post('/login', [
       return res.status(500).json({ error: 'Server configuration error' });
     }
 
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, userId: user.id, name: user.name });
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, userId: user._id, name: user.name });
   } catch (err) {
     console.error('Login error:', err);
     return res.status(500).json({ error: 'Server error', details: err.message });

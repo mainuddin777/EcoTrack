@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
-const db = require('../db');
+const { CarbonEntry } = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 const { calculateCarbonFootprint, APPLIANCE_RATINGS, TRANSPORT_EMISSIONS } = require('../services/carbonCalculator');
 
@@ -13,12 +13,11 @@ router.get('/transport-types', (req, res) => {
   res.json(Object.keys(TRANSPORT_EMISSIONS));
 });
 
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   const userId = req.user.userId;
 
   try {
-    const stmt = db.prepare('SELECT * FROM carbon_entries WHERE user_id = ? ORDER BY date DESC');
-    const rows = stmt.all(userId);
+    const rows = await CarbonEntry.find({ user_id: userId }).sort({ date: -1 });
     res.json(rows);
   } catch (err) {
     console.error('Get entries error:', err);
@@ -29,7 +28,7 @@ router.get('/', authenticateToken, (req, res) => {
 router.post('/', authenticateToken, [
   body('category').notEmpty().isIn(['Energy', 'Transportation', 'Food', 'Waste']),
   body('date').optional().isISO8601()
-], (req, res) => {
+], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -37,7 +36,7 @@ router.post('/', authenticateToken, [
 
   const userId = req.user.userId;
   const { category, date, description } = req.body;
-  const entryDate = date || new Date().toISOString().split('T')[0];
+  const entryDate = date ? new Date(date) : new Date();
 
   try {
     let amount = 0;
@@ -106,13 +105,20 @@ router.post('/', authenticateToken, [
       source = 'Waste disposal';
     }
 
-    const stmt = db.prepare(
-      'INSERT INTO carbon_entries (user_id, category, amount, unit, description, date, source) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    );
-    const result = stmt.run(userId, category, amount, 'kg CO2', description || source, entryDate, source);
+    const newEntry = new CarbonEntry({
+      user_id: userId,
+      category,
+      amount,
+      unit: 'kg CO2',
+      description: description || source,
+      date: entryDate,
+      source
+    });
+    
+    const result = await newEntry.save();
     
     res.status(201).json({ 
-      id: result.lastInsertRowid, 
+      id: result._id, 
       message: 'Entry added successfully',
       calculatedAmount: amount,
       unit: 'kg CO2'
@@ -123,13 +129,12 @@ router.post('/', authenticateToken, [
   }
 });
 
-router.delete('/:id', authenticateToken, (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   const userId = req.user.userId;
   const entryId = req.params.id;
 
   try {
-    const stmt = db.prepare('DELETE FROM carbon_entries WHERE id = ? AND user_id = ?');
-    stmt.run(entryId, userId);
+    await CarbonEntry.deleteOne({ _id: entryId, user_id: userId });
     res.json({ message: 'Entry deleted successfully' });
   } catch (err) {
     console.error('Delete entry error:', err);

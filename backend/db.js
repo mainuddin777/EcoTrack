@@ -1,40 +1,74 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+const mongoose = require('mongoose');
 require('dotenv').config();
 
-const dbPath = process.env.DATABASE_PATH || '../database/ecotrack.db';
-const dbPathFull = path.join(__dirname, dbPath);
+const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/ecotrack';
 
-const db = new Database(dbPathFull);
-db.pragma('journal_mode = WAL');
+mongoose.connect(mongoURI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => console.log('Connected to MongoDB database'))
+.catch(err => console.error('MongoDB connection error:', err));
 
-console.log('Connected to SQLite database');
-initializeDatabase();
+// User Schema
+const userSchema = new mongoose.Schema({
+  email: {
+    type: String,
+    required: true,
+    unique: true
+  },
+  password: {
+    type: String,
+    required: true
+  },
+  name: {
+    type: String,
+    required: true
+  },
+  created_at: {
+    type: Date,
+    default: Date.now
+  }
+});
 
-function initializeDatabase() {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      name TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS carbon_entries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      category TEXT NOT NULL,
-      amount REAL NOT NULL,
-      unit TEXT NOT NULL,
-      description TEXT,
-      source TEXT,
-      date DATE NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
-}
+// Carbon Entry Schema
+const carbonEntrySchema = new mongoose.Schema({
+  user_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  category: {
+    type: String,
+    required: true,
+    enum: ['Energy', 'Transportation', 'Food', 'Waste']
+  },
+  amount: {
+    type: Number,
+    required: true
+  },
+  unit: {
+    type: String,
+    required: true
+  },
+  description: String,
+  source: String,
+  date: {
+    type: Date,
+    required: true
+  },
+  created_at: {
+    type: Date,
+    default: Date.now
+  }
+});
 
-module.exports = db;
+// Models
+const User = mongoose.model('User', userSchema);
+const CarbonEntry = mongoose.model('CarbonEntry', carbonEntrySchema);
+
+module.exports = {
+  User,
+  CarbonEntry,
+  mongoose
+};
